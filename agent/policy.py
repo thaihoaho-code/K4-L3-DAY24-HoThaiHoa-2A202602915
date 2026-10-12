@@ -34,7 +34,10 @@ không phải xác thực người dùng production.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -51,5 +54,62 @@ class PolicyContext:
     expires_at: str = ""
 
 
+_VALID_CLASSIFICATIONS = {"public", "internal", "restricted"}
+_PRINCIPALS_PATH = Path(__file__).resolve().parent.parent / "data" / "principals.json"
+
+
 def check(context: PolicyContext) -> tuple[bool, str]:
-    raise NotImplementedError("BƯỚC 3b: implement policy check")
+    classification = context.data_classification
+    if classification not in _VALID_CLASSIFICATIONS:
+        return False, f"unknown data classification: {classification!r}"
+
+    # This invariant applies to every principal, including DPO.
+    if classification == "restricted" and context.egress_enabled is True:
+        return False, "restricted data cannot be used while egress is enabled"
+
+    if not isinstance(context.egress_enabled, bool):
+        return False, "egress_enabled must be a boolean"
+    if not context.agent_owner.strip():
+        return False, "agent owner is required"
+    if not isinstance(context.delegation_depth, int) or context.delegation_depth < 0:
+        return False, "delegation depth must be a non-negative integer"
+    if not context.request_purpose.strip():
+        return False, "request purpose is required"
+    if not context.requested_tool.strip():
+        return False, "requested tool is required"
+
+    try:
+        raw_principals = json.loads(_PRINCIPALS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, f"principal registry unavailable: {type(exc).__name__}"
+
+    principal = raw_principals.get(context.principal_id)
+    if not isinstance(principal, dict):
+        return False, f"unknown principal: {context.principal_id!r}"
+    if context.request_purpose not in principal.get("purposes", []):
+        return False, f"principal {context.principal_id!r} is not authorized for purpose {context.request_purpose!r}"
+
+    allowed_tools = principal.get("allowed_tools", [])
+    if context.requested_tool not in allowed_tools:
+        return False, f"principal {context.principal_id!r} is not authorized for tool {context.requested_tool!r}"
+    if context.requested_tool not in context.agent_scopes:
+        return False, f"agent scope does not include tool {context.requested_tool!r}"
+    if context.delegation_depth > 0 and context.requested_tool not in context.parent_scopes:
+        return False, f"parent scope does not include delegated tool {context.requested_tool!r}"
+
+    if context.requested_tool == "http_post" and not context.egress_enabled:
+        return False, "egress is disabled for http_post"
+
+    try:
+        expires_at = datetime.fromisoformat(context.expires_at.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
+        return False, "expires_at must be a valid UTC ISO-8601 timestamp"
+    if expires_at.tzinfo is None or expires_at.utcoffset() != timezone.utc.utcoffset(expires_at):
+        return False, "expires_at must include a UTC timezone"
+    if expires_at <= datetime.now(timezone.utc):
+        return False, "delegation has expired"
+
+    return True, (
+        f"allowed: principal {context.principal_id!r} may call "
+        f"{context.requested_tool!r} for {context.request_purpose!r}"
+    )

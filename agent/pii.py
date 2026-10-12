@@ -30,10 +30,68 @@ set ở tests/vn_pii_testset.jsonl):
 """
 from __future__ import annotations
 
+import re
+
+
+_EMAIL_RE = re.compile(
+    r"(?<![\w.+-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+"
+    r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+(?![\w-])"
+)
+_LABELED_ACCOUNT_RE = re.compile(
+    r"(?i)(?:\bSTK\b|số\s+tài\s+khoản)\s*[:#-]?\s*"
+    r"(?P<number>\d{8,16})(?!\d)"
+)
+_CCCD_RE = re.compile(r"(?<!\d)\d{12}(?!\d)")
+_PHONE_RE = re.compile(r"(?<!\d)0(?:[ .-]?\d){9,10}(?!\d)")
+_ACCOUNT_RE = re.compile(r"(?<!\d)\d{8,16}(?!\d)")
+
+
+def _entity(kind: str, start: int, end: int) -> dict:
+    return {"type": kind, "start": start, "end": end}
+
 
 def detect(text: str) -> list[dict]:
-    raise NotImplementedError("BƯỚC 3a: implement PII detection")
+    # More specific signals win: a labeled account is an account even when
+    # its length also matches CCCD/phone, while unlabeled numeric overlaps
+    # prefer CCCD and then phone over a generic account number.
+    candidates: list[dict] = []
+
+    def add_matches(kind: str, pattern: re.Pattern, priority: int, group: str | None = None):
+        for match in pattern.finditer(text):
+            start, end = (match.span(group) if group else match.span())
+            candidates.append({**_entity(kind, start, end), "_priority": priority})
+
+    add_matches("EMAIL", _EMAIL_RE, 0)
+    add_matches("VN_BANK_ACCOUNT", _LABELED_ACCOUNT_RE, 1, "number")
+    add_matches("VN_CCCD", _CCCD_RE, 2)
+    add_matches("VN_PHONE", _PHONE_RE, 3)
+    add_matches("VN_BANK_ACCOUNT", _ACCOUNT_RE, 4)
+
+    selected: list[dict] = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (
+            item["_priority"],
+            item["start"],
+            -(item["end"] - item["start"]),
+        ),
+    ):
+        if any(
+            candidate["start"] < existing["end"]
+            and existing["start"] < candidate["end"]
+            for existing in selected
+        ):
+            continue
+        candidate.pop("_priority")
+        selected.append(candidate)
+
+    return sorted(selected, key=lambda item: (item["start"], item["end"]))
 
 
 def redact(text: str) -> str:
-    raise NotImplementedError("BƯỚC 3a: implement PII redaction")
+    result = text
+    for entity in sorted(detect(text), key=lambda item: item["start"], reverse=True):
+        replacement = f"[REDACTED_{entity['type']}]"
+        result = result[: entity["start"]] + replacement + result[entity["end"] :]
+    return result

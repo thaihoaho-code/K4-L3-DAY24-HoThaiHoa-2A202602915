@@ -37,12 +37,60 @@ rồi gọi verify() phải trả về False.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 
+_ZERO_HASH = "0" * 64
+
+
+def _digest(entry: dict) -> str:
+    contents = {key: value for key, value in entry.items() if key != "hash"}
+    encoded = json.dumps(contents, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def append(entry: dict, path: Path) -> dict:
-    raise NotImplementedError("BƯỚC 3d: implement ledger append")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    previous_hash = _ZERO_HASH
+    if path.exists():
+        with path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                if line.strip():
+                    previous_hash = json.loads(line)["hash"]
+
+    recorded = dict(entry)
+    recorded["prev_hash"] = previous_hash
+    recorded["hash"] = _digest(recorded)
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(recorded, ensure_ascii=False) + "\n")
+    return recorded
 
 
 def verify(path: Path) -> bool:
-    raise NotImplementedError("BƯỚC 3d: implement ledger verify")
+    path = Path(path)
+    if not path.is_file():
+        return False
+
+    expected_previous = _ZERO_HASH
+    try:
+        with path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    return False
+                entry = json.loads(line)
+                if not isinstance(entry, dict):
+                    return False
+                if not entry.get("reason"):
+                    return False
+                if entry.get("prev_hash") != expected_previous:
+                    return False
+                recorded_hash = entry.get("hash")
+                if not isinstance(recorded_hash, str) or recorded_hash != _digest(entry):
+                    return False
+                expected_previous = recorded_hash
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return False
+    return True

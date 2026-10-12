@@ -1,10 +1,14 @@
-# Compliance mapping — điền trong checkpoint 5
+# Compliance mapping (learning exercise)
 
-| Nguồn / yêu cầu | Control đã làm | Evidence file:dòng | Giới hạn |
+This is a qualitative map of controls present in this synthetic lab. It is **not** a legal opinion, audit, or compliance certification. The official government pages below identify the named instruments, but their full legal texts were not reviewed for this mapping; therefore no article-level legal claim is made and specific provisions are marked **chưa xác minh**.
+
+| nguồn/chủ đề | control đã làm | bằng chứng `file:dòng` thật | giới hạn |
 |---|---|---|---|
-| Luật 91/2025/QH15 | | | |
-| NĐ 356/2025/NĐ-CP | | | |
-| Luật AI 134/2025/QH15 | | | |
-| OWASP ASI01, ASI03, ASI04 | | | |
+| [Luật 91/2025/QH15 – Bảo vệ dữ liệu cá nhân](https://vanban.chinhphu.vn/?classid=1&docid=214590&pageid=27160&typegroup=) — chủ đề dữ liệu cá nhân; điều khoản cụ thể: **chưa xác minh** | Che dữ liệu nhận dạng theo các mẫu và chặn luồng egress khi phân loại `restricted`. | `agent/pii.py:54-69`, `agent/pii.py:92-97`, `agent/policy.py:66-68`, `agent/runner.py:196-208` | Regex chỉ bao phủ mẫu đã định nghĩa; dữ liệu và principal là giả lập. Không kết luận đáp ứng nghĩa vụ nào của luật. |
+| [Nghị định 356/2025/NĐ-CP](https://vanban.chinhphu.vn/?classid=1&docid=216387&pageid=27160) — văn bản hướng dẫn Luật Bảo vệ dữ liệu cá nhân; điều khoản cụ thể: **chưa xác minh** | Ghi mục đích, principal, thời hạn, quyết định và hash tham số vào ledger; kiểm quyền trước khi mở hồ sơ. | `agent/runner.py:95-127`, `agent/runner.py:156-184`, `agent/ledger.py:54-68`, `agent/ledger.py:72-96` | Chưa đối chiếu văn bản gốc/điều khoản; ledger hash chain không thay thế hệ thống lưu trữ audit chống sửa đổi hay quản trị dữ liệu thật. |
+| [Luật 134/2025/QH15 – Trí tuệ nhân tạo](https://vanban.chinhphu.vn/?classid=1&docid=216334&orggroupid=1&pageid=27160) — chủ đề quản trị hệ thống AI; điều khoản cụ thể: **chưa xác minh** | Có policy gate trước tool call, tách Run A/Run B, giới hạn scope và lưu dấu quyết định. | `agent/runner.py:95-127`, `agent/runner.py:129-149`, `agent/runner.py:156-189`, `agent/policy.py:61-115` | Chưa đọc văn bản gốc để gắn điều khoản; agent, LLM và quyền đều là môi trường lab, không phải đánh giá rủi ro AI pháp lý. |
+| [OWASP ASI01 – Agent Goal Hijack](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/) | Văn bản lure chỉ được xem như tín hiệu; customer ID từ lure không quyết định hồ sơ; policy từ chối egress restricted. | `agent/runner.py:140-149`, `agent/runner.py:186-223`, `agent/policy.py:66-68` | Mapping định tính; không chứng minh mọi dạng prompt injection đều bị phát hiện hoặc vô hiệu hóa. |
+| OWASP ASI03 – Identity & Privilege Abuse (nguồn OWASP ở hàng ASI01) | Quyền hiệu lực phải có trong quyền principal và scope agent; delegation còn phải nằm trong parent scope; kiểm mục đích và thời hạn. | `agent/policy.py:86-110`, `agent/runner.py:99-127` | `principal_id` đến từ cấu hình/lệnh mô phỏng, không xác thực người thật đang sử dụng máy. |
+| OWASP ASI04 – Agentic Supply Chain Vulnerabilities (nguồn OWASP ở hàng ASI01) | Gitleaks hook được pin; dependency lock và test supply-chain được kiểm tra. | `.pre-commit-config.yaml:1-6`, `reports/secrets-incident.md:3-7` | Hook không thu hồi secret và không xóa bản sao lịch sử; kết quả một lần chạy không bảo đảm tương lai. |
 
-Chỉ ghi điều khoản cụ thể khi đã đối chiếu văn bản gốc. Mô phỏng kỹ thuật không tự chứng minh tuân thủ pháp luật.
+**Kết luận:** bảng này chỉ mô tả các biện pháp và bằng chứng trong bài lab; không phải chứng nhận tuân thủ.
